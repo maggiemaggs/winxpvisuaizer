@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Windows Media Player - Battery & Alchemy</title>
+    <link rel="stylesheet" href="https://unpkg.com/xp.css" />
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-image: url('https://ia601200.us.archive.org/11/items/theoriginalfilesofsomewindowswallpapers/bliss%20600dpi.jpg');
+            background-size: cover;
+            background-position: center;
+            background-attachment: fixed;
+            font-family: 'Tahoma', sans-serif;
+        }
+        .playback-btn {
+            background: linear-gradient(180deg, #ECE9D8 0%, #D6D3CE 100%);
+            border: 1px solid #003C74;
+            cursor: pointer;
+            box-shadow: inset -1px -1px 0px #0009, inset 1px 1px 0px #fff;
+        }
+        .playback-btn:active {
+            box-shadow: inset 1px 1px 0px #0009;
+            background: linear-gradient(180deg, #D6D3CE 0%, #ECE9D8 100%);
+        }
+    </style>
+</head>
+<body>
+    <div style="min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px;">
+        <div class="window" style="width: 100%; max-width: 900px;">
+            <div class="title-bar">
+                <div class="title-bar-text">Windows Media Player</div>
+                <div class="title-bar-controls">
+                    <button aria-label="Minimize"></button>
+                    <button aria-label="Maximize"></button>
+                    <button aria-label="Close"></button>
+                </div>
+            </div>
+            
+            <div class="window-body" style="padding: 0;">
+                <div style="background-color: #000; position: relative;">
+                    <canvas id="canvas" width="900" height="450" style="width: 100%; display: block;"></canvas>
+                </div>
+                
+                <div style="background: linear-gradient(180deg, #ECE9D8 0%, #E3DED0 100%); padding: 12px; border-top: 1px solid #fff;">
+                    <div style="margin-bottom: 10px; display: flex; align-items: center; gap: 8px;">
+                        <label style="font-size: 11px; font-family: Tahoma, sans-serif;">Visualization:</label>
+                        <select id="vizSelect" style="font-family: Tahoma, sans-serif; font-size: 11px; padding: 2px 4px; min-width: 120px;">
+                            <option value="random">Random</option>
+                        </select>
+                    </div>
+                    
+                    <div style="margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between;">
+                        <div style="display: flex; gap: 4px;">
+                            <button class="playback-btn" style="width: 32px; height: 26px; display: flex; align-items: center; justify-content: center; font-size: 14px;">⏮️</button>
+                            <button id="playBtn" class="playback-btn" style="width: 40px; height: 26px; display: flex; align-items: center; justify-content: center; font-size: 16px;">▶️</button>
+                            <button class="playback-btn" style="width: 32px; height: 26px; display: flex; align-items: center; justify-content: center; font-size: 14px;">⏭️</button>
+                        </div>
+                        
+                        <div style="display: flex; align-items: center; gap: 6px;">
+                            <span>🔊</span>
+                            <input type="range" id="volumeSlider" min="0" max="100" value="70" style="width: 100px;" />
+                            <span id="volumeText" style="font-size: 11px; width: 35px; text-align: right; font-family: Tahoma, sans-serif;">70%</span>
+                        </div>
+                    </div>
+                    
+                    <div style="margin-bottom: 8px;">
+                        <div style="display: flex; gap: 4px; margin-bottom: 4px;">
+                            <input id="urlInput" type="text" placeholder="Enter MP3 URL..." style="flex: 1; border: 1px solid #7F9DB9; padding: 3px 4px; font-family: Tahoma, sans-serif; font-size: 11px; background: white;" />
+                            <button id="loadUrlBtn" style="background: linear-gradient(180deg, #ECE9D8 0%, #D6D3CE 100%); border: 1px solid #003C74; padding: 4px 8px; cursor: pointer; font-size: 11px; font-family: Tahoma, sans-serif;">Load URL</button>
+                        </div>
+                        
+                        <div style="display: flex; gap: 4px;">
+                            <input id="fileInput" type="file" accept="audio/*" style="display: none;" />
+                            <button id="fileBtn" style="flex: 1; background: linear-gradient(180deg, #ECE9D8 0%, #D6D3CE 100%); border: 1px solid #003C74; padding: 4px 8px; cursor: pointer; font-size: 11px; font-family: Tahoma, sans-serif;">📁 Open File...</button>
+                        </div>
+                        
+                        <div id="statusMsg" style="font-size: 11px; font-family: Tahoma, sans-serif; padding: 4px 0; min-height: 16px;"></div>
+                    </div>
+                    
+                    <div id="nowPlaying" style="font-size: 11px; font-family: Tahoma, sans-serif; text-align: center; border-top: 1px solid #999; padding-top: 6px;">Ready</div>
+                </div>
+            </div>
+            
+            <audio id="audio" loop src="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3"></audio>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        const audio = document.getElementById('audio');
+        
+        let isPlaying = false;
+        let audioContext, analyser;
+        let time = 0;
+        let trackName = 'Demo Track';
+        
+        // Warp field parameters
+        let warpTime = 0;
+        let colorOffset = 0; // Slowly shifts through rainbow
+        
+        // UI elements
+        document.getElementById('playBtn').onclick = togglePlay;
+        document.getElementById('volumeSlider').oninput = e => {
+            audio.volume = e.target.value / 100;
+            document.getElementById('volumeText').textContent = e.target.value + '%';
+        };
+        document.getElementById('vizSelect').onchange = e => {}; // Only one mode now
+        document.getElementById('loadUrlBtn').onclick = loadUrl;
+        document.getElementById('urlInput').onkeypress = e => e.key === 'Enter' && loadUrl();
+        document.getElementById('fileBtn').onclick = () => document.getElementById('fileInput').click();
+        document.getElementById('fileInput').onchange = loadFile;
+        
+        async function togglePlay() {
+            if (!audioContext) {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                analyser = audioContext.createAnalyser();
+                analyser.fftSize = 2048;
+                analyser.smoothingTimeConstant = 0.75;
+                const source = audioContext.createMediaElementSource(audio);
+                source.connect(analyser);
+                analyser.connect(audioContext.destination);
+            }
+            
+            if (isPlaying) {
+                audio.pause();
+                document.getElementById('playBtn').textContent = '▶️';
+            } else {
+                await audio.play();
+                document.getElementById('playBtn').textContent = '⏸️';
+            }
+            isPlaying = !isPlaying;
+            updateStatus();
+        }
+        
+        function loadUrl() {
+            const url = document.getElementById('urlInput').value.trim();
+            if (!url) return;
+            audio.src = url;
+            const filename = url.split('/').pop().split('?')[0];
+            trackName = filename.replace(/\.[^/.]+$/, '') || 'Custom Track';
+            audio.load();
+            document.getElementById('urlInput').value = '';
+            updateStatus();
+        }
+        
+        function loadFile(e) {
+            const file = e.target.files[0];
+            if (file) {
+                audio.src = URL.createObjectURL(file);
+                trackName = file.name.replace(/\.[^/.]+$/, '');
+                audio.load();
+                updateStatus();
+            }
+        }
+        
+        function updateStatus() {
+            document.getElementById('nowPlaying').textContent = isPlaying ? `♪ Now Playing: ${trackName}` : 'Ready';
+        }
+        
+        // Main render loop - Geiss-inspired feedback warping
+        function render() {
+            const w = canvas.width;
+            const h = canvas.height;
+            time += 0.016;
+            warpTime += 0.02;
+            colorOffset += 0.2; // Slow rainbow shift
+            
+            if (analyser && isPlaying) {
+                const dataArray = new Uint8Array(analyser.frequencyBinCount);
+                analyser.getByteFrequencyData(dataArray);
+                
+                // Step 1: Warp the existing image (Geiss technique)
+                warpImage(dataArray);
+                
+                // Step 2: Draw background layer (Alchemy - cool colors)
+                drawAlchemyParticles(dataArray);
+                
+                // Step 3: Draw foreground layer (Battery - warm colors)
+                drawBatteryWaveforms(dataArray);
+            } else {
+                ctx.fillStyle = '#000';
+                ctx.fillRect(0, 0, w, h);
+            }
+            
+            requestAnimationFrame(render);
+        }
+        
+        // Geiss-style image warping using getImageData/putImageData
+        function warpImage(audioData) {
+            const w = canvas.width;
+            const h = canvas.height;
+            const imageData = ctx.getImageData(0, 0, w, h);
+            const newImageData = ctx.createImageData(w, h);
+            const src = imageData.data;
+            const dst = newImageData.data;
+            
+            const bass = audioData.slice(0, 30).reduce((a,b) => a+b) / 30 / 255;
+            const mid = audioData.slice(30, 100).reduce((a,b) => a+b) / 70 / 255;
+            const warpStrength = 5 + bass * 15 + mid * 8;
+            
+            for (let y = 0; y < h; y++) {
+                for (let x = 0; x < w; x++) {
+                    // Calculate warp displacement
+                    const dx = x - w/2;
+                    const dy = y - h/2;
+                    const dist = Math.sqrt(dx*dx + dy*dy);
+                    const angle = Math.atan2(dy, dx);
+                    
+                    // Spiral/zoom warp with STRONG audio reactivity
+                    const warpAngle = angle + Math.sin(warpTime + dist * 0.01) * 0.08 * (1 + bass * 2);
+                    const warpDist = dist * (1.0 + Math.sin(warpTime * 0.5) * 0.015 * (1 + mid * 3));
+                    
+                    const srcX = w/2 + Math.cos(warpAngle) * warpDist + Math.sin(y * 0.02 + warpTime) * warpStrength;
+                    const srcY = h/2 + Math.sin(warpAngle) * warpDist + Math.cos(x * 0.02 + warpTime) * warpStrength;
+                    
+                    // Bilinear sampling
+                    const sx = Math.floor(srcX);
+                    const sy = Math.floor(srcY);
+                    const fx = srcX - sx;
+                    const fy = srcY - sy;
+                    
+                    if (sx >= 0 && sx < w-1 && sy >= 0 && sy < h-1) {
+                        const i1 = (sy * w + sx) * 4;
+                        const i2 = (sy * w + sx + 1) * 4;
+                        const i3 = ((sy + 1) * w + sx) * 4;
+                        const i4 = ((sy + 1) * w + sx + 1) * 4;
+                        
+                        const dstIdx = (y * w + x) * 4;
+                        
+                        for (let c = 0; c < 3; c++) {
+                            const v1 = src[i1 + c] * (1-fx) + src[i2 + c] * fx;
+                            const v2 = src[i3 + c] * (1-fx) + src[i4 + c] * fx;
+                            dst[dstIdx + c] = v1 * (1-fy) + v2 * fy;
+                        }
+                        dst[dstIdx + 3] = 255;
+                    }
+                }
+            }
+            
+            ctx.putImageData(newImageData, 0, 0);
+            
+            // Darken slightly to create trails
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.02)';
+            ctx.fillRect(0, 0, w, h);
+        }
+        
+        function drawBatteryWaveforms(audioData) {
+            const w = canvas.width;
+            const h = canvas.height;
+            const cx = w / 2;
+            const cy = h / 2;
+            
+            const bass = audioData.slice(0, 30).reduce((a,b) => a+b) / 30 / 255;
+            const mid = audioData.slice(30, 100).reduce((a,b) => a+b) / 70 / 255;
+            
+            // Draw multiple symmetric waveforms with WARM colors (red to yellow/green)
+            const numLines = 16;
+            
+            for (let line = 0; line < numLines; line++) {
+                const angle = (line / numLines) * Math.PI * 2;
+                
+                ctx.save();
+                ctx.translate(cx, cy);
+                ctx.rotate(angle);
+                
+                ctx.beginPath();
+                // Warm colors: 0° (red) to 120° (green), shifted by colorOffset
+                const hue = ((colorOffset + line * 7.5) % 120);
+                ctx.strokeStyle = `hsla(${hue}, 90%, 65%, ${0.5 + bass * 0.3})`;
+                ctx.lineWidth = 4 + bass * 6;
+                
+                for (let i = 0; i < 200; i++) {
+                    const idx = Math.floor(i / 200 * audioData.length);
+                    const amp = audioData[idx] / 255;
+                    
+                    const x = i * 3;
+                    const y = Math.sin(i * 0.05 + time * 3) * (50 + bass * 80) * amp +
+                             Math.cos(i * 0.1 - time * 2) * (30 + mid * 50) * amp;
+                    
+                    if (i === 0) ctx.moveTo(x, y);
+                    else ctx.lineTo(x, y);
+                }
+                
+                ctx.stroke();
+                ctx.restore();
+            }
+        }
+        
+        function drawAlchemyParticles(audioData) {
+            const w = canvas.width;
+            const h = canvas.height;
+            const cx = w / 2;
+            const cy = h / 2;
+            const bass = audioData.slice(0, 30).reduce((a,b) => a+b) / 30 / 255;
+            const mid = audioData.slice(30, 100).reduce((a,b) => a+b) / 70 / 255;
+            
+            // Draw radial symmetric particles with COOL colors (turquoise to indigo/violet)
+            const symmetry = 8;
+            const particles = 10;
+            
+            for (let sym = 0; sym < symmetry; sym++) {
+                const angle = (sym / symmetry) * Math.PI * 2 + time * 0.2;
+                
+                for (let i = 0; i < particles; i++) {
+                    const idx = Math.floor(i / particles * audioData.length);
+                    const amp = audioData[idx] / 255;
+                    
+                    const radius = 80 + i * 40 + Math.sin(time + i) * (40 + bass * 60);
+                    const x = cx + Math.cos(angle) * radius;
+                    const y = cy + Math.sin(angle) * radius;
+                    const size = (20 + amp * 50 + bass * 40) * (1 + mid * 0.7);
+                    
+                    // Cool colors: 180° (cyan) to 300° (violet), shifted by colorOffset
+                    const hue = 180 + ((colorOffset + i * 12) % 120);
+                    const grad = ctx.createRadialGradient(x, y, 0, x, y, size);
+                    grad.addColorStop(0, `hsla(${hue}, 90%, 70%, ${0.6 + amp * 0.2})`);
+                    grad.addColorStop(0.5, `hsla(${hue}, 85%, 55%, ${0.35 + bass * 0.25})`);
+                    grad.addColorStop(1, `hsla(${hue}, 80%, 40%, 0)`);
+                    
+                    ctx.fillStyle = grad;
+                    ctx.beginPath();
+                    ctx.arc(x, y, size, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+        }
+        
+        // Start
+        audio.volume = 0.7;
+        render();
+    </script>
+</body>
+</html>
